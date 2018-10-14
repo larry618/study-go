@@ -12,7 +12,7 @@ import (
 func TestLSM(t *testing.T) {
 	conf := LSMConf{}
 	conf.BlockSize = 1024 * 16
-	conf.Dir = "/Users/yangkeyao/Temp/data/lsm/"
+	conf.Dir = "/Users/Test/Temp/data/lsm/"
 	os.RemoveAll(conf.Dir)
 	os.MkdirAll(conf.Dir, os.ModeDir|os.ModePerm)
 	conf.MemSyncSize = 1024 * 1024
