@@ -17,9 +17,7 @@ import crand "crypto/rand"
 import "encoding/base64"
 import "sync/atomic"
 import "time"
-import (
-	"fmt"
-)
+import "fmt"
 
 func randstring(n int) string {
 	b := make([]byte, 2*n)
@@ -42,7 +40,14 @@ type config struct {
 	logs      []map[int]int // copy of each server's committed entries
 }
 
+var ncpu_once sync.Once
+
 func make_config(t *testing.T, n int, unreliable bool) *config {
+	ncpu_once.Do(func() {
+		if runtime.NumCPU() < 2 {
+			fmt.Printf("warning: only one CPU, which may conceal locking bugs\n")
+		}
+	})
 	runtime.GOMAXPROCS(4)
 	cfg := &config{}
 	cfg.t = t
@@ -329,7 +334,7 @@ func (cfg *config) nCommitted(index int) (int, interface{}) {
 		cfg.mu.Lock()
 		cmd1, ok := cfg.logs[i][index]
 		cfg.mu.Unlock()
-		//DPrintf("i=",i,"index=",index,"cmd=",cmd1)
+
 		if ok {
 			if count > 0 && cmd != cmd1 {
 				cfg.t.Fatalf("committed values do not match: index %v, %v, %v\n",
@@ -382,11 +387,6 @@ func (cfg *config) wait(index int, n int, startTerm int) interface{} {
 // as do the threads that read from applyCh.
 // returns index.
 func (cfg *config) one(cmd int, expectedServers int) int {
-
-	for i := 0; i < len(cfg.rafts); i++ {
-		//DPrintf(cfg.rafts)
-	}
-
 	t0 := time.Now()
 	starts := 0
 	for time.Since(t0).Seconds() < 10 {
@@ -398,7 +398,6 @@ func (cfg *config) one(cmd int, expectedServers int) int {
 			cfg.mu.Lock()
 			if cfg.connected[starts] {
 				rf = cfg.rafts[starts]
-
 			}
 			cfg.mu.Unlock()
 			if rf != nil {
@@ -429,15 +428,6 @@ func (cfg *config) one(cmd int, expectedServers int) int {
 			time.Sleep(50 * time.Millisecond)
 		}
 	}
-	printLogs(cfg)
 	cfg.t.Fatalf("one(%v) failed to reach agreement", cmd)
 	return -1
-}
-
-func printLogs(cfg *config) {
-	for si := 0; si < cfg.n; si++ {
-		//var rf *Raft = cfg.rafts[si]
-		//fmt.Printf("%s",rf.role)
-		//DPrintf(strconv.Itoa(rf.me),"data=",rf.logs)
-	}
 }

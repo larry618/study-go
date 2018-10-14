@@ -593,6 +593,7 @@ func (s *server) updateCurrentTerm(term uint64, leaderName string) {
 //                    |            new leader |                                     |
 //                    |_______________________|____________________________________ |
 // The main event loop for the server
+// main loop
 func (s *server) loop() {
 	defer s.debugln("server.loop.end")
 
