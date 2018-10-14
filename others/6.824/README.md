@@ -25,7 +25,7 @@ MIT 6.824 课程的学习资料
 - [Lec2: RPC与线程机制(Go语言实战)](https://github.com/chaozh/MIT-6.824/issues/3)
 - [Lec3: GFS](https://github.com/chaozh/MIT-6.824/issues/6)
 - [Lec4：主从备份](https://github.com/chaozh/MIT-6.824/issues/7)
-- [Lec 5：Raft基本](https://github.com/chaozh/MIT-6.824/issues/9)
+- [Lec5：Raft基本](https://github.com/chaozh/MIT-6.824/issues/9)
 - [Lec6：Raft实现](https://github.com/chaozh/MIT-6.824/issues/10)
 
 ## 问题 Questions

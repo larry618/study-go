@@ -18,7 +18,6 @@ package raft
 //
 
 import (
-	//"fmt"
 	"../labrpc"
 	"bytes"
 	"encoding/gob"
@@ -30,7 +29,7 @@ import (
 const (
 	LEADER = iota
 	CANDIDATE
-	FLLOWER
+	FOLLOWER
 
 	HBINTERVAL = 50 * time.Millisecond // 50ms
 )
@@ -216,7 +215,7 @@ func (rf *Raft) RequestVote(args RequestVoteArgs, reply *RequestVoteReply) {
 	//If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower
 	if args.Term > rf.currentTerm {
 		rf.currentTerm = args.Term
-		rf.state = FLLOWER
+		rf.state = FOLLOWER
 		rf.votedFor = -1
 	}
 	reply.Term = rf.currentTerm
@@ -240,7 +239,7 @@ func (rf *Raft) RequestVote(args RequestVoteArgs, reply *RequestVoteReply) {
 
 	if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) && uptoDate {
 		rf.chanGrantVote <- true
-		rf.state = FLLOWER
+		rf.state = FOLLOWER
 		reply.VoteGranted = true
 		rf.votedFor = args.CandidateId
 	}
@@ -263,7 +262,7 @@ func (rf *Raft) AppendEntries(args AppendEntriesArgs, reply *AppendEntriesReply)
 	//If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower
 	if args.Term > rf.currentTerm {
 		rf.currentTerm = args.Term
-		rf.state = FLLOWER
+		rf.state = FOLLOWER
 		rf.votedFor = -1
 	}
 	reply.Term = args.Term
@@ -344,14 +343,14 @@ func (rf *Raft) sendRequestVote(server int, args RequestVoteArgs, reply *Request
 		}
 		if reply.Term > term {
 			rf.currentTerm = reply.Term
-			rf.state = FLLOWER
+			rf.state = FOLLOWER
 			rf.votedFor = -1
 			rf.persist()
 		}
 		if reply.VoteGranted {
 			rf.voteCount++
 			if rf.state == CANDIDATE && rf.voteCount > len(rf.peers)/2 {
-				rf.state = FLLOWER
+				rf.state = FOLLOWER
 				rf.chanLeader <- true
 			}
 		}
@@ -373,7 +372,7 @@ func (rf *Raft) sendAppendEntries(server int, args AppendEntriesArgs, reply *App
 
 		if reply.Term > rf.currentTerm {
 			rf.currentTerm = reply.Term
-			rf.state = FLLOWER
+			rf.state = FOLLOWER
 			rf.votedFor = -1
 			rf.persist()
 			return ok
@@ -468,7 +467,7 @@ func (rf *Raft) InstallSnapshot(args InstallSnapshotArgs, reply *InstallSnapshot
 		return
 	}
 	rf.chanHeartbeat <- true
-	rf.state = FLLOWER
+	rf.state = FOLLOWER
 	rf.currentTerm = rf.currentTerm
 
 	rf.persister.SaveSnapshot(args.Data)
@@ -490,7 +489,7 @@ func (rf *Raft) sendInstallSnapshot(server int, args InstallSnapshotArgs, reply 
 	if ok {
 		if reply.Term > rf.currentTerm {
 			rf.currentTerm = reply.Term
-			rf.state = FLLOWER
+			rf.state = FOLLOWER
 			rf.votedFor = -1
 			return ok
 		}
@@ -639,7 +638,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.me = me
 
 	// Your initialization code here.
-	rf.state = FLLOWER
+	rf.state = FOLLOWER
 	rf.votedFor = -1
 	rf.log = append(rf.log, LogEntry{LogTerm: 0})
 	rf.currentTerm = 0
@@ -656,7 +655,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	go func() {
 		for {
 			switch rf.state {
-			case FLLOWER:
+			case FOLLOWER:
 				select {
 				case <-rf.chanHeartbeat:
 				case <-rf.chanGrantVote:
@@ -681,7 +680,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 				select {
 				case <-time.After(time.Duration(rand.Int63()%300+510) * time.Millisecond):
 				case <-rf.chanHeartbeat:
-					rf.state = FLLOWER
+					rf.state = FOLLOWER
 				//	fmt.Printf("CANDIDATE %v reveive chanHeartbeat\n",rf.me)
 				case <-rf.chanLeader:
 					rf.mu.Lock()

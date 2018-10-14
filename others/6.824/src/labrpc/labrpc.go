@@ -48,7 +48,13 @@ package labrpc
 //   pass svc to srv.AddService()
 //
 
-import "encoding/gob"
+// 参考资料
+// http://oserror.com/distributed/golang-rpc-with-failure-simulation/
+
+import (
+	"encoding/gob"
+	"fmt"
+)
 import "bytes"
 import "reflect"
 import "sync"
@@ -62,7 +68,7 @@ type reqMsg struct {
 	svcMeth  string      // e.g. "Raft.AppendEntries"
 	argsType reflect.Type
 	args     []byte
-	replyCh  chan replyMsg
+	replyCh  chan replyMsg // 返回数据的channel
 }
 
 type replyMsg struct {
@@ -72,7 +78,7 @@ type replyMsg struct {
 
 type ClientEnd struct {
 	endname interface{} // this end-point's name
-	ch      chan reqMsg // copy of Network.endCh
+	ch      chan reqMsg // copy of Network.endCh  发送消息的网络
 }
 
 // send an RPC, wait for the reply.
@@ -82,7 +88,7 @@ func (e *ClientEnd) Call(svcMeth string, args interface{}, reply interface{}) bo
 	req := reqMsg{}
 	req.endname = e.endname
 	req.svcMeth = svcMeth
-	req.argsType = reflect.TypeOf(args)
+	req.argsType = reflect.TypeOf(args) // 如果是数组
 	req.replyCh = make(chan replyMsg)
 
 	qb := new(bytes.Buffer)
@@ -91,8 +97,7 @@ func (e *ClientEnd) Call(svcMeth string, args interface{}, reply interface{}) bo
 	req.args = qb.Bytes()
 
 	e.ch <- req
-
-	rep := <-req.replyCh
+	rep := <-req.replyCh // 每个channel都是新make的 每个请求的 replyCh 都不一样 所以不会有乱序问题
 	if rep.ok {
 		rb := bytes.NewBuffer(rep.reply)
 		rd := gob.NewDecoder(rb)
@@ -107,14 +112,14 @@ func (e *ClientEnd) Call(svcMeth string, args interface{}, reply interface{}) bo
 
 type Network struct {
 	mu             sync.Mutex
-	reliable       bool
-	longDelays     bool                        // pause a long time on send on disabled connection
-	longReordering bool                        // sometimes delay replies a long time
-	ends           map[interface{}]*ClientEnd  // ends, by name
-	enabled        map[interface{}]bool        // by end name
+	reliable       bool                        // 模拟网络是否可靠
+	longDelays     bool                        // pause a long time on send on disabled connection 网络时候有延迟
+	longReordering bool                        // sometimes delay replies a long time  网络是否乱序
+	ends           map[interface{}]*ClientEnd  // ends, by name 客户端节点
+	enabled        map[interface{}]bool        // by end name 服务端节点是否宕机
 	servers        map[interface{}]*Server     // servers, by name
 	connections    map[interface{}]interface{} // endname -> servername
-	endCh          chan reqMsg
+	endCh          chan reqMsg                 // 模拟rpc网络
 }
 
 func MakeNetwork() *Network {
@@ -224,6 +229,12 @@ func (rn *Network) ProcessReq(req reqMsg) {
 			}
 		}
 
+		// 根据一系列的配置，决定是否返回结果以及何时返回结果，用来模拟故障情况
+		//  - 如果enabled为false，则模拟Server挂掉的情况，则直接返回失败。
+		//  - 如果reliable为false，则模拟网络不可靠情况，有概率返回失败
+		//  - 如果longreording为true，则以一定概率等待一定时间返回结果，以模拟网络包乱序地情况
+		//  - 如果是longDelays为true，则会等待一段事件再返回结果，模拟高时延的情况
+
 		// do not reply if DeleteServer() has been called, i.e.
 		// the server has been killed. this is needed to avoid
 		// situation in which a client gets a positive reply
@@ -276,7 +287,7 @@ func (rn *Network) MakeEnd(endname interface{}) *ClientEnd {
 
 	e := &ClientEnd{}
 	e.endname = endname
-	e.ch = rn.endCh
+	e.ch = rn.endCh // 通道 相当于网络
 	rn.ends[endname] = e
 	rn.enabled[endname] = false
 	rn.connections[endname] = nil
@@ -332,7 +343,7 @@ func (rn *Network) GetCount(servername interface{}) int {
 type Server struct {
 	mu       sync.Mutex
 	services map[string]*Service
-	count    int // incoming RPCs
+	count    int // incoming RPCs  // 调用过多少次
 }
 
 func MakeServer() *Server {
@@ -347,6 +358,7 @@ func (rs *Server) AddService(svc *Service) {
 	rs.services[svc.name] = svc
 }
 
+// 分发到不同的 service 上
 func (rs *Server) dispatch(req reqMsg) replyMsg {
 	rs.mu.Lock()
 
@@ -364,7 +376,8 @@ func (rs *Server) dispatch(req reqMsg) replyMsg {
 	if ok {
 		return service.dispatch(methodName, req)
 	} else {
-		choices := []string{}
+		// 没有找到对应的service
+		var choices []string
 		for k, _ := range rs.services {
 			choices = append(choices, k)
 		}
@@ -384,8 +397,8 @@ func (rs *Server) GetCount() int {
 // a single server may have more than one Service.
 type Service struct {
 	name    string
-	rcvr    reflect.Value
-	typ     reflect.Type
+	rcvr    reflect.Value // Service 的真实值 (对象的实例之类的吧)
+	typ     reflect.Type  // Service 的真实类型
 	methods map[string]reflect.Method
 }
 
@@ -401,14 +414,17 @@ func MakeService(rcvr interface{}) *Service {
 		mtype := method.Type
 		mname := method.Name
 
-		//fmt.Printf("%v pp %v ni %v 1k %v 2k %v no %v\n",
-		//	mname, method.PkgPath, mtype.NumIn(), mtype.In(1).Kind(), mtype.In(2).Kind(), mtype.NumOut())
+		//fmt.Printf("%v PkgPath %v NumIn %v In0.Kind %v In1.Kind %v In2.Kind %v NumOut %v\n",
+		//	mname, method.PkgPath, mtype.NumIn(), mtype.In(0).Kind(), mtype.In(1).Kind(), mtype.In(2).Kind(), mtype.NumOut())
 
+		//printMethodInfo(method)
+
+		// mtype.In(0) 是 receiver 吗
 		if method.PkgPath != "" || // capitalized?
 			mtype.NumIn() != 3 ||
 			//mtype.In(1).Kind() != reflect.Ptr ||
-			mtype.In(2).Kind() != reflect.Ptr ||
-			mtype.NumOut() != 0 {
+			mtype.In(2).Kind() != reflect.Ptr || // 第三个参数必须是指针
+			mtype.NumOut() != 0 { // 必须没有出参 返回值返回到第三个参数
 			// the method is not suitable for a handler
 			//fmt.Printf("bad method: %v\n", mname)
 		} else {
@@ -420,6 +436,22 @@ func MakeService(rcvr interface{}) *Service {
 	return svc
 }
 
+func printMethodInfo(method reflect.Method) {
+	mtype := method.Type
+	mname := method.Name
+
+	fmt.Printf("%v PkgPath %v NumIn %v In0.Kind %v In1.Kind %v In2.Kind %v NumOut %v\n",
+		mname, method.PkgPath, mtype.NumIn(), mtype.In(0).Kind(), mtype.In(1).Kind(), mtype.In(2).Kind(), mtype.NumOut())
+
+	//mtype.In(0) 是 receiver
+	for i := 0; i < mtype.NumIn(); i++ {
+		fmt.Printf("    NumIn %v Kind %v \n", i, mtype.In(i).Kind())
+	}
+
+	// mtype.In(0) 是 receiver 吗
+}
+
+// 分发到service的不同方法上
 func (svc *Service) dispatch(methname string, req reqMsg) replyMsg {
 	if method, ok := svc.methods[methname]; ok {
 		// prepare space into which to read the argument.

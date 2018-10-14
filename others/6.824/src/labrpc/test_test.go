@@ -20,6 +20,7 @@ type JunkServer struct {
 	log2 []int
 }
 
+// 要实现rpc调用的方法都必须是这种类型的
 func (js *JunkServer) Handler1(args string, reply *int) {
 	js.mu.Lock()
 	defer js.mu.Unlock()
@@ -306,7 +307,7 @@ func TestUnreliable(t *testing.T) {
 }
 
 //
-// test concurrent RPCs from a single ClientEnd
+// test concurrent RPCs from a single
 //
 func TestConcurrentOne(t *testing.T) {
 	runtime.GOMAXPROCS(4)
