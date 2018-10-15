@@ -1,14 +1,12 @@
 package raft
 
 import (
+	"../labrpc"
+	"bytes"
+	"encoding/gob"
 	"math/rand"
 	"sync"
 	"time"
-
-	"bytes"
-	"encoding/gob"
-
-	"../labrpc"
 )
 
 type ServerState string

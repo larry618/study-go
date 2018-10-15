@@ -84,8 +84,9 @@ func (p *Peer) setLastActivity(now time.Time) {
 // Heartbeat
 //--------------------------------------
 
+// 发送心跳入口 go-raft的leader向Follower同步日志是在heartbeat中完成的：
 // Starts the peer heartbeat.
-func (p *Peer) startHeartbeat() {
+func (p *Peer) startHeartbeat() { // 只有 leader loop 会调用
 	p.stopChan = make(chan bool)
 	c := make(chan bool)
 
@@ -162,7 +163,7 @@ func (p *Peer) heartbeat(c chan bool) {
 			start := time.Now()
 			p.flush()
 			duration := time.Now().Sub(start)
-			p.server.DispatchEvent(newEvent(HeartbeatEventType, duration, nil))
+			p.server.DispatchEvent(newEvent(HeartbeatEventType, duration, nil)) // 这里是在干什么
 		}
 	}
 }
@@ -185,12 +186,14 @@ func (p *Peer) flush() {
 // Append Entries
 //--------------------------------------
 
+// hehe leader的 server for 遍历了每个节点 调用 heartbeat()
+// reference: others/raft/server.go:821
 // Sends an AppendEntries request to the peer through the transport.
 func (p *Peer) sendAppendEntriesRequest(req *AppendEntriesRequest) {
 	tracef("peer.append.send: %s->%s [prevLog:%v length: %v]\n",
 		p.server.Name(), p.Name, req.PrevLogIndex, len(req.Entries))
 
-	resp := p.server.Transporter().SendAppendEntriesRequest(p.server, p, req)
+	resp := p.server.Transporter().SendAppendEntriesRequest(p.server, p, req) // 给一个节点 (p) 发送rpc请求
 	if resp == nil {
 		p.server.DispatchEvent(newEvent(HeartbeatIntervalEventType, p, nil))
 		debugln("peer.append.timeout: ", p.server.Name(), "->", p.Name)

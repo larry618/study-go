@@ -1,5 +1,6 @@
 package raft
 
+// https://zhuanlan.zhihu.com/p/27415397 参考资料
 import (
 	"encoding/json"
 	"errors"
@@ -108,7 +109,7 @@ type Server interface {
 }
 
 type server struct {
-	*eventDispatcher
+	*eventDispatcher // 负责通知指定时间的listener
 
 	name        string
 	path        string
@@ -125,7 +126,7 @@ type server struct {
 	syncedPeer map[string]bool
 
 	stopped           chan bool
-	c                 chan *ev
+	c                 chan *ev // 当前节点的命令通道，所有的命令都通过该channel来传递
 	electionTimeout   time.Duration
 	heartbeatInterval time.Duration
 
@@ -626,6 +627,9 @@ func (s *server) send(value interface{}) (interface{}, error) {
 	select {
 	case s.c <- event:
 	case <-s.stopped:
+		// 如果这个接收了, 那其他在等待这个的channel的还能不能接收到,
+		// 所以这里用的不是发信号 而是直接close channel
+		// reference: others/raft/server.go:525
 		return nil, StopError
 	}
 	select {
@@ -814,6 +818,8 @@ func (s *server) leaderLoop() {
 
 	// Update the peers prevLogIndex to leader's lastLogIndex and start heartbeat.
 	s.debugln("leaderLoop.set.PrevIndex to ", logIndex)
+
+	// !!! 遍历每一个peer, 给每个peer发送心跳包
 	for _, peer := range s.peers {
 		peer.setPrevLogIndex(logIndex)
 		peer.startHeartbeat()
@@ -898,6 +904,12 @@ func (s *server) Do(command Command) (interface{}, error) {
 	return s.send(command)
 }
 
+// 创建日志项并将日志项append至日志文件，如果过程中由任何错误，
+// 就将这个错误写入e.c：e.c <- err，这样等待在该channel的客户端就会收到通知，立即返回。
+
+// 如果没有错误，这时候客户端还是处于等待状态的，这是因为虽然该Command被leader节点成功处理了，
+// 但是该Command的日志还没有被同步至大多数Follow节点，因此该Command也就无法被提交，
+// 所以发起该Command的客户端依然等在那，Command被提交，这在后面的日志同步过程中会有所体现。
 // Processes a command.
 func (s *server) processCommand(command Command, e *ev) {
 	s.debugln("server.command.process")
@@ -1011,6 +1023,11 @@ func (s *server) processAppendEntriesResponse(resp *AppendEntriesResponse) {
 		return
 	}
 
+	// 这里会判断如果多数的Follower都已经同步日志了，
+	// 那么就可以检查所有的Follower此时的日志点，
+	// 并根据log index排序，leader会算出这些Follower的提交点，
+	// 然后提交，调用setCommitIndex。
+
 	// Determine the committed index that a majority has.
 	var indices []uint64
 	indices = append(indices, s.log.currentIndex())
@@ -1063,6 +1080,10 @@ func (s *server) RequestVote(req *RequestVoteRequest) *RequestVoteResponse {
 	return resp
 }
 
+// 接受一个远程节点的选主请求需要满足以下条件：
+//  * 远程节点的term必须要大于等于当前节点的term；
+//  * 远程节点的log必须比当前节点的更新；
+//  * 当前节点的term和远程节点的选主请求的term如果一样且当前节点未给任何其他节点投出自己的选票。
 // Processes a "request vote" request.
 func (s *server) processRequestVoteRequest(req *RequestVoteRequest) (*RequestVoteResponse, bool) {
 

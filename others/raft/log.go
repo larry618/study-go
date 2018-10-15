@@ -372,9 +372,11 @@ func (l *Log) setCommitIndex(index uint64) error {
 		}
 
 		// Apply the changes to the state machine and store the error code.
-		returnValue, err := l.ApplyFunc(entry, command)
+		returnValue, err := l.ApplyFunc(entry, command) // 将日志项中的Command应用到状态机
 
 		debugf("setCommitIndex.set.result index: %v, entries index: %v", i, entryIndex)
+		// 判断这个LogEntry是不是由客户直接发起的，如果是，
+		// 那么还需要将状态机的处理结果通过event.c返回给客户端，这样，客户端就可以返回了
 		if entry.event != nil {
 			entry.event.returnValue = returnValue
 			entry.event.c <- err

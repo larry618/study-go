@@ -1,10 +1,12 @@
 package raft
 
 import (
+	"github.com/golang/protobuf/proto"
 	"io"
 	"io/ioutil"
 
-	"code.google.com/p/gogoprotobuf/proto"
+	//"code.google.com/p/gogoprotobuf/proto"
+
 	"github.com/goraft/raft/protobuf"
 )
 
